@@ -1,5 +1,7 @@
 import express, { json } from 'express';
 import multer from 'multer';
+import cors from 'cors';
+import mongoose from 'mongoose';
 import { readFile } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -12,6 +14,8 @@ const app = express();
 const port = 3000;
 
 app.use(json());
+
+app.use(cors());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,20 +59,37 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                 break;
 
             case 'update':
-                const record = await RegistrationModel.findOne({ _id: registrationId }) // Assuming that registrationId is the objectId 
-                if (record) {
-                    record.studentId = studentId;
-                    record.instructorId = instructorId;
-                    record.classId = classId;
-                    record.startTime = startTime;
-                    await record.save();
-                    responses.push({ row, message: 'Record updated successfully' });
-                } else {
-                    responses.push({ row, message: 'Record not found' });
+                if (!mongoose.isValidObjectId(registrationId)) {
+                    responses.push({ row, message: `Invalid ObjectId: ${registrationId}` });
+                    continue;
+                }
+                try{
+                    const record = await RegistrationModel.findOne({ _id: registrationId }) // Assuming that registrationId is the objectId 
+                    if (record) {
+                        record.studentId = studentId;
+                        record.instructorId = instructorId;
+                        record.classId = classId;
+                        record.startTime = startTime;
+                        await record.save();
+                        responses.push({ row, message: 'Record updated successfully' });
+                    } else {
+                        responses.push({ row, message: 'Record not found' });
+                    }
+                } catch (error) {
+                    responses.push({ row, message: `Error deleting record: ${error.message}` });
                 }
                 break;
             case 'delete':
-                await RegistrationModel.deleteOne({ _id: registrationId })
+                if (!mongoose.isValidObjectId(registrationId)) {
+                    responses.push({ row, message: `Invalid ObjectId: ${registrationId}` });
+                    continue;
+                }
+                try {
+                    await RegistrationModel.deleteOne({ _id: registrationId })
+                    responses.push({ row, message: 'Record deleted successfully' });
+                } catch (error) {
+                    responses.push({ row, message: `Error deleting record: ${error.message}` });
+                }
                 break;
             default:
         }
