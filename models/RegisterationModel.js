@@ -6,7 +6,7 @@ const registrationSchema = new mongoose.Schema({
     classId: String,
     startTime: Date,
     duration: Number,
-});
+}, { timestamps: true });
 
 const RegistrationModel = mongoose.model('Registration', registrationSchema);
 

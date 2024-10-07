@@ -1,0 +1,4 @@
+Registration ID,Student ID,Instructor ID,Class ID,Class Start Time,Action
+null,123,111,1,10/8/2024 13:00,new
+67045ef3cbecf3ca1b104191,123,101,1,10/8/2024 14:00,update
+67045f9a8e2b9afcfb0ddc75,null,null,null,null,delete
