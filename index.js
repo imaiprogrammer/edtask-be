@@ -26,20 +26,22 @@ app.post('/registration', upload.single('file'), async (req, res) => {
     const { name, email } = req.body;
     const file = req.file;
 
+    const responses = [];
+
     if (!file) {
         return res.status(400).send('No file uploaded');
     }
 
     const filePath = join(__dirname, 'uploads', file.filename);
     const parsedRows = await parseCSV(filePath);
-    parsedRows.forEach(async (row) => {
+    for (const row of parsedRows) {
         const registrationId = row['Registration ID'];
         const studentId = row['Student ID'];
         const instructorId = row['Instructor ID'];
         const classId = row['Class ID'];
         const startTime = row['Class Start Time'];
         const action = row['Action'];
-        switch(action){
+        switch (action) {
             case 'new':
                 const registerNew = new RegistrationModel({
                     studentId,
@@ -49,25 +51,30 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                     duration: process.env.CLASS_DURATION || 60,
                 })
                 await registerNew.save();
-            break;
+                responses.push({ row, message: 'Registration successful', registrationId: registerNew._id });
+                break;
 
             case 'update':
-                const record = await RegistrationModel.findOne({_id: registrationId }) // Assuming that registrationId is the object 
-                if(record){
+                const record = await RegistrationModel.findOne({ _id: registrationId }) // Assuming that registrationId is the objectId 
+                if (record) {
                     record.studentId = studentId;
                     record.instructorId = instructorId;
                     record.classId = classId;
                     record.startTime = startTime;
                     await record.save();
+                    responses.push({ row, message: 'Record updated successfully' });
+                } else {
+                    responses.push({ row, message: 'Record not found' });
                 }
-            break;
+                break;
             case 'delete':
-                await RegistrationModel.deleteOne({_id: registrationId })
-            break;
+                await RegistrationModel.deleteOne({ _id: registrationId })
+                break;
             default:
         }
-    })
-    res.status(200).send('Registration successful');
+    }
+    console.log('Responses...', JSON.stringify(responses));
+    res.status(200).json(responses);
 });
 
 app.listen(port, () => {
