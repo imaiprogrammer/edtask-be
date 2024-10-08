@@ -54,7 +54,7 @@ app.post('/registration', upload.single('file'), async (req, res) => {
 
                 const studentClassCount = await RegistrationModel.countDocuments({ studentId, startTime: { $gte: today } });
 
-                if (studentClassCount >= STUD_MAX_CLASSES) {
+                if (studentClassCount >= STUDENT_MAX_CLASSES) {
                     responses.push({ row, message: `A student cannot schedule more than ${studentClassCount} classes in a day ` });
                     continue;
                 }
