@@ -30,6 +30,8 @@ app.post('/registration', upload.single('file'), async (req, res) => {
     const { name, email } = req.body;
     const file = req.file;
 
+    const today = new Date().setHours(0, 0, 0, 0);
+
     const responses = [];
 
     if (!file) {
@@ -47,13 +49,32 @@ app.post('/registration', upload.single('file'), async (req, res) => {
         const action = row['Action'];
         switch (action) {
             case 'new':
+                // A student cannot schedule more than 'x' classes in a day (should be configurable via env variables).
+                const STUDENT_MAX_CLASSES = process.env.STUDENT_MAX_CLASSES || 5;
+
+                const studentClassCount = await RegistrationModel.countDocuments({ studentId, startTime: { $gte: today } });
+
+                if (studentClassCount >= STUD_MAX_CLASSES) {
+                    responses.push({ row, message: `A student cannot schedule more than ${studentClassCount} classes in a day ` });
+                    continue;
+                }
+
+                // An instructor cannot have more than 'y' classes in a day (should be configurable via env variables).
+                const INSTRUCTOR_MAX_CLASSES = process.env.INSTRUCTOR_MAX_CLASSES || 5;
+                const instructorClassCount = await RegistrationModel.countDocuments({ instructorId, startTime: { $gte: today } });
+
+                if (instructorClassCount >= INSTRUCTOR_MAX_CLASSES) {
+                    responses.push({ row, message: `An instructor cannot have more than ${instructorClassCount} classes in a day` });
+                    continue;
+                }
+
                 const registerNew = new RegistrationModel({
                     studentId,
                     instructorId,
                     classId,
                     startTime,
-                    duration: process.env.CLASS_DURATION || 60,
-                })
+                    duration: process.env.CLASS_DURATION || 60, // Duration of class is 'm' minutes (should be configurable via env variables).
+                });
                 await registerNew.save();
                 responses.push({ row, message: 'Registration successful', registrationId: registerNew._id });
                 break;
@@ -63,7 +84,7 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                     responses.push({ row, message: `Invalid ObjectId: ${registrationId}` });
                     continue;
                 }
-                try{
+                try {
                     const record = await RegistrationModel.findOne({ _id: registrationId }) // Assuming that registrationId is the objectId 
                     if (record) {
                         record.studentId = studentId;
