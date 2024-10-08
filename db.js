@@ -11,7 +11,7 @@ const connectDB = async () => {
         useNewUrlParser: true,
         useUnifiedTopology: true,
       });
-      console.log('Connected to Db');
+      console.log(`Connected to Db ${dbUri}`);
     } catch (err) {
       console.error('Error connecting to Db:', err);
       process.exit(1); // Exit process if the connection fails

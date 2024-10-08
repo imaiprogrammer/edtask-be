@@ -5,12 +5,12 @@ import mongoose from 'mongoose';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './db.js';
-// Import of Registration Model Schema 
+import parseCSV from './utility/csvparser.js';
+// Import of Schema Models
 import RegistrationModel from './models/RegisterationModel.js';
 import StudentModel from './models/StudentModel.js';
 import InstructorModel from './models/InstructorModel.js';
 import ClassTypeModel from './models/ClassTypeModel.js';
-import parseCSV from './utility/csvparser.js';
 
 const app = express();
 const port = 3000;
@@ -258,6 +258,84 @@ app.get('/daywise-classes', async (req, res) => {
         res.status(500).json({ message: 'Error fetching class data', error: error.message });
     }
 })
+
+// Fetching all classes
+app.get('/classes', async (req, res) => {
+    try {
+        const classTypes = await ClassTypeModel.find().lean();
+        res.status(200).json(classTypes);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching class data', error: error.message });
+    }
+});
+
+// Fetching all registrations with classes and instructors
+app.get('/registrations-list', async (req, res) => {
+    try {
+        const registrationRecords = await RegistrationModel.aggregate([
+            {
+                $lookup: {
+                    from: 'classtypes',
+                    localField: 'classId',
+                    foreignField: 'classId',
+                    as: 'classDetails',
+                },
+            },
+            {
+                $lookup: {
+                    from: 'instructors', 
+                    localField: 'instructorId',
+                    foreignField: 'instructorId',
+                    as: 'instructorDetails',
+                }
+            },
+            {
+                $unwind: {
+                    path: '$classDetails',
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+            {
+                $unwind: {
+                    path: '$instructorDetails',
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+            {
+                $project: {
+                    classId: 1,
+                    studentId: 1,
+                    startTime: 1,
+                    instructorInfo: {
+                        instructorId: '$instructorDetails.instructorId',
+                        name: '$instructorDetails.name',
+                        email: '$instructorDetails.email',
+                        expertise: '$instructorDetails.expertise'
+                    },
+                    classInfo: {
+                        classId: '$classDetails.classId',
+                        className: '$classDetails.className',
+                        description: '$classDetails.description'
+                    }
+                }
+            }
+        ]);
+        res.status(200).json(registrationRecords);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching registration records', error: error.message });
+    }
+});
+
+
+// Fetching all instructors
+app.get('/instructors', async (req, res) => {
+    try {
+        const instructors = await InstructorModel.find().lean();
+        res.status(200).json(instructors);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching instructors', error: error.message });
+    }
+});
 
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
