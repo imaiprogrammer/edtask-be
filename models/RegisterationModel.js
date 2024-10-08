@@ -9,5 +9,4 @@ const registrationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const RegistrationModel = mongoose.model('Registration', registrationSchema);
-
 export default RegistrationModel;

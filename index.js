@@ -2,12 +2,14 @@ import express, { json } from 'express';
 import multer from 'multer';
 import cors from 'cors';
 import mongoose from 'mongoose';
-import { readFile } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './db.js';
 // Import of Registration Model Schema 
 import RegistrationModel from './models/RegisterationModel.js';
+import StudentModel from './models/StudentModel.js';
+import InstructorModel from './models/InstructorModel.js';
+import ClassTypeModel from './models/ClassTypeModel.js';
 import parseCSV from './utility/csvparser.js';
 
 const app = express();
@@ -44,6 +46,28 @@ const classOverlapCheck = async (studentId, instructorId, classTime) => {
     return false;
 };
 
+const checkForStudent = async (studentId) => {
+    let student = await StudentModel.findOne({ studentId });
+    if (!student) {
+        student = new StudentModel({
+            studentId,
+            name: `JohnDoe ${studentId}`,
+            email: `john${studentId}@drive.com`,
+        });
+        await student.save();
+        return { student, message: `New student added: ${studentId}` };
+    }
+}
+
+const checkForInstructor = async (instructorId) => {
+    let instructor = await InstructorModel.findOne({ instructorId });
+    return !instructor ? { row, message: `Invalid instructor ID: ${instructorId}` } : true;
+}
+
+const checkForClass = async (classId, responses, row) => {
+    const classType = await ClassTypeModel.findOne({ classId });
+    return !classType ? { row, message: `Invalid class type ID: ${classId}` } : true;
+};
 
 // Api Request Route for registration
 app.post('/registration', upload.single('file'), async (req, res) => {
@@ -67,6 +91,23 @@ app.post('/registration', upload.single('file'), async (req, res) => {
         const classId = row['Class ID'];
         const startTime = row['Class Start Time'];
         const action = row['Action'];
+
+        // If the csv contains a student ID not in the master list, append to the student ID;
+        const { student, message } = await checkForStudent(studentId);
+        if (message) responses.push({ row, message });
+
+        //  for instructor, if the id is invalid, return an error.
+        const isInstructorValid = await checkForInstructor(instructorId, responses, row);
+        if (!isInstructorValid) {
+            continue;
+        }
+
+        //  for class IDs, if the id is invalid, return an error.
+        const isClassValid = await checkForClass(classId);
+        if (!isClassValid) {
+            continue;
+        }
+
         switch (action) {
             case 'new':
                 // A student cannot schedule more than 'x' classes in a day (should be configurable via env variables).
@@ -163,6 +204,32 @@ app.post('/registration', upload.single('file'), async (req, res) => {
     }
     console.log('Responses...', JSON.stringify(responses));
     res.status(200).json(responses);
+});
+
+
+app.post('/bulk-insert', async (req, res) => {
+    try {
+        // Inserting dummy students
+        await StudentModel.insertMany([
+            { studentId: '12398', name: 'John Doe', email: 'john@demo.com' },
+            { studentId: '124213', name: 'Jane', email: 'jane@demo.com' },
+        ]);
+
+        // Inserting dummy instructors
+        await InstructorModel.insertMany([
+            { instructorId: '111', name: 'Bob', email: 'bob@drive.com', expertise: 'Driving' },
+            { instructorId: '112', name: 'Alice', email: 'alice@drive.com', expertise: 'Theory' },
+        ]);
+
+        // Inserting dummy classtypes
+        await ClassTypeModel.insertMany([
+            { classId: '101', className: 'Driving Basics', description: 'Introduction to driving basics.' },
+            { classId: '201', className: 'Advanced Driving', description: 'Advanced driving techniques.' },
+        ]);
+    } catch (exception) {
+        console.log('Error while insertion', exception);
+    }
+    res.status(200).send('Dummy records are inserted');
 });
 
 app.listen(port, () => {
