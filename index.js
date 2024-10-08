@@ -57,16 +57,17 @@ const checkForStudent = async (studentId) => {
         await student.save();
         return { student, message: `New student added: ${studentId}` };
     }
+    return { student, message: null };
 }
 
 const checkForInstructor = async (instructorId) => {
     let instructor = await InstructorModel.findOne({ instructorId });
-    return !instructor ? { row, message: `Invalid instructor ID: ${instructorId}` } : true;
+    return !instructor ? { message: `Invalid instructor ID: ${instructorId}` } : true;
 }
 
-const checkForClass = async (classId, responses, row) => {
+const checkForClass = async (classId) => {
     const classType = await ClassTypeModel.findOne({ classId });
-    return !classType ? { row, message: `Invalid class type ID: ${classId}` } : true;
+    return !classType ? { message: `Invalid class type ID: ${classId}` } : true;
 };
 
 // Api Request Route for registration
@@ -93,11 +94,11 @@ app.post('/registration', upload.single('file'), async (req, res) => {
         const action = row['Action'];
 
         // If the csv contains a student ID not in the master list, append to the student ID;
-        const { student, message } = await checkForStudent(studentId);
+        const { message } = await checkForStudent(studentId);
         if (message) responses.push({ row, message });
 
         //  for instructor, if the id is invalid, return an error.
-        const isInstructorValid = await checkForInstructor(instructorId, responses, row);
+        const isInstructorValid = await checkForInstructor(instructorId);
         if (!isInstructorValid) {
             continue;
         }
@@ -193,7 +194,7 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                     if (!record) {
                         responses.push({ row, message: `Record not found for ID: ${registrationId}` });
                     } else {
-                        responses.push({ row, message: `Record ${record._id} deleted successfully` });
+                        responses.push({ row, message: `Record deleted successfully` });
                     }
                 } catch (error) {
                     responses.push({ row, message: `Error deleting record: ${error.message}` });
@@ -206,7 +207,7 @@ app.post('/registration', upload.single('file'), async (req, res) => {
     res.status(200).json(responses);
 });
 
-
+// Just one time insertion of dummy records
 app.post('/bulk-insert', async (req, res) => {
     try {
         // Inserting dummy students
@@ -231,6 +232,32 @@ app.post('/bulk-insert', async (req, res) => {
     }
     res.status(200).send('Dummy records are inserted');
 });
+
+// Day wise scheduled classes
+app.get('/daywise-classes', async (req, res) => {
+    try {
+        const classData = await RegistrationModel.aggregate([
+            {
+                $group: {
+                    _id: {
+                        $dateToString: { format: '%Y-%m-%d', date: '$startTime' },
+                    },
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+
+        const formattedClassData = classData.map((item) => ({
+            date: item._id,
+            count: item.count,
+        }));
+
+        res.status(200).json(formattedClassData);
+    } catch (exception) {
+        res.status(500).json({ message: 'Error fetching class data', error: error.message });
+    }
+})
 
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
