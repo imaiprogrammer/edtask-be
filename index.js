@@ -62,11 +62,29 @@ const checkForStudent = async (studentId) => {
 
 const checkForInstructor = async (instructorId) => {
     let instructor = await InstructorModel.findOne({ instructorId });
+    if (!instructor) {
+        instructor = new InstructorModel({
+            instructorId,
+            name: `Instructor ${instructorId}`,
+            email: `Mike${instructorId}@drive.com`
+        });
+        await instructor.save();
+        return { instructor, message: `New instructor added: ${instructorId}` };
+    }
     return !instructor ? { message: `Invalid instructor ID: ${instructorId}` } : true;
 }
 
 const checkForClass = async (classId) => {
     const classType = await ClassTypeModel.findOne({ classId });
+    if (!classType) {
+        const newClassType = new ClassTypeModel({
+            classId,
+            className: `Class ${classId}`,
+            description: `Description for class ${classId}`
+        });
+        await newClassType.save();
+        return { classType: newClassType._doc, message: `New class added: ${classId}` };
+    }
     return !classType ? { message: `Invalid class type ID: ${classId}` } : true;
 };
 
@@ -93,24 +111,25 @@ app.post('/registration', upload.single('file'), async (req, res) => {
         const startTime = row['Class Start Time'];
         const action = row['Action'];
 
-        // If the csv contains a student ID not in the master list, append to the student ID;
-        const { message } = await checkForStudent(studentId);
-        if (message) responses.push({ row, message });
-
-        //  for instructor, if the id is invalid, return an error.
-        const isInstructorValid = await checkForInstructor(instructorId);
-        if (!isInstructorValid) {
-            continue;
-        }
-
-        //  for class IDs, if the id is invalid, return an error.
-        const isClassValid = await checkForClass(classId);
-        if (!isClassValid) {
-            continue;
-        }
-
         switch (action) {
             case 'new':
+
+                // If the csv contains a student ID not in the master list, append to the student ID;
+                const { message } = await checkForStudent(studentId);
+                if (message) responses.push({ row, message });
+
+                // If the csv contains a instructor ID not in the master list, append to the Instructor ID;
+                const isInstructorValid = await checkForInstructor(instructorId);
+                if (!isInstructorValid) {
+                    continue;
+                }
+
+                // If the csv contains a class ID not in the master list, append to the Class ID;
+                const isClassValid = await checkForClass(classId);
+                if (!isClassValid) {
+                    continue;
+                }
+
                 // A student cannot schedule more than 'x' classes in a day (should be configurable via env variables).
                 const STUDENT_MAX_CLASSES = process.env.STUDENT_MAX_CLASSES || 5;
 
@@ -283,7 +302,7 @@ app.get('/registrations-list', async (req, res) => {
             },
             {
                 $lookup: {
-                    from: 'instructors', 
+                    from: 'instructors',
                     localField: 'instructorId',
                     foreignField: 'instructorId',
                     as: 'instructorDetails',
