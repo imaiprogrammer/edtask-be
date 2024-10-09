@@ -4,6 +4,8 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { Server } from 'socket.io';
+import http from 'http';
 import connectDB from './db.js';
 import parseCSV from './utility/csvparser.js';
 // Import of Schema Models
@@ -12,8 +14,18 @@ import StudentModel from './models/StudentModel.js';
 import InstructorModel from './models/InstructorModel.js';
 import ClassTypeModel from './models/ClassTypeModel.js';
 
-const app = express();
 const port = process.env.PORT || 3000;
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+io.on('connection', (socket) => {
+    console.log('socket connected');
+    socket.on('disconnect', () => {
+        console.log('socket disconnected');
+    });
+});
 
 app.use(json());
 
@@ -28,6 +40,8 @@ const upload = multer({ dest: 'uploads/' });
 const db = connectDB();
 
 const classDuration = process.env.CLASS_DURATION_MINUTES || 45;
+const FAILED_STATUS = 'failed';
+const SUCCESS_STATUS = 'success';
 
 // Be careful of overlapping sessions (so if i send a request to schedule a class for student A and instructor I at 12:30 PM, and the duration is 45 minutes), API shouldn't allow (rejects the row with a return reason if the class is being scheduled for instructor I at before 12:30 + 45 minutes).
 const classOverlapCheck = async (studentId, instructorId, classTime) => {
@@ -90,7 +104,7 @@ const checkForClass = async (classId) => {
 
 // Api Request Route for registration
 app.post('/registration', upload.single('file'), async (req, res) => {
-    const { name, email } = req.body;
+    const { name, email, socketId } = req.body;
     const file = req.file;
 
     const today = new Date().setHours(0, 0, 0, 0);
@@ -103,7 +117,7 @@ app.post('/registration', upload.single('file'), async (req, res) => {
 
     const filePath = join(__dirname, 'uploads', file.filename);
     const parsedRows = await parseCSV(filePath);
-    for (const row of parsedRows) {
+    for (const [index, row] of parsedRows.entries()) {
         const registrationId = row['Registration ID'];
         const studentId = row['Student ID'];
         const instructorId = row['Instructor ID'];
@@ -113,7 +127,7 @@ app.post('/registration', upload.single('file'), async (req, res) => {
 
         switch (action) {
             case 'new':
-
+                try {
                 // If the csv contains a student ID not in the master list, append to the student ID;
                 const { message } = await checkForStudent(studentId);
                 if (message) responses.push({ row, message });
@@ -179,7 +193,11 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                     duration: process.env.CLASS_DURATION || 60, // Duration of class is 'm' minutes (should be configurable via env variables).
                 });
                 await registerNew.save();
+                io.to(socketId).emit('record_upload_status', { index, row, status: SUCCESS_STATUS, message: `${registerNew._id} registered successfully.` });
                 responses.push({ row, message: 'Registration successful', registrationId: registerNew._id });
+            } catch (error) {
+            
+            }
                 break;
 
             case 'update':
@@ -188,19 +206,22 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                     continue;
                 }
                 try {
-                    const record = await RegistrationModel.findOne({ _id: registrationId }) // Assuming that registrationId is the objectId 
+                    const record = await RegistrationModel.findOne({ _id: registrationId }).lean() // Assuming that registrationId is the objectId 
                     if (record) {
                         record.studentId = studentId;
                         record.instructorId = instructorId;
                         record.classId = classId;
                         record.startTime = startTime;
                         await record.save();
+                        io.to(socketId).emit('record_upload_status', { index, row, status:SUCCESS_STATUS, message: `${record._id} updated successfully.` });
                         responses.push({ row, message: 'Record updated successfully' });
                     } else {
+                        io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `${record._id} updated successfully.` });
                         responses.push({ row, message: 'Record not found' });
                     }
                 } catch (error) {
-                    responses.push({ row, message: `Error deleting record: ${error.message}` });
+                    io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `${record._id} updated successfully.` });
+                    responses.push({ row, message: `Error updating record: ${error.message}` });
                 }
                 break;
             case 'delete':
@@ -216,11 +237,14 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                         responses.push({ row, message: `Record deleted successfully` });
                     }
                 } catch (error) {
+                    io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `Failed to delete record` });
                     responses.push({ row, message: `Error deleting record: ${error.message}` });
                 }
                 break;
             default:
         }
+
+
     }
     console.log('Responses...', JSON.stringify(responses));
     res.status(200).json(responses);
@@ -356,6 +380,6 @@ app.get('/instructors', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
