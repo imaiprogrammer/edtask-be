@@ -18,10 +18,18 @@ const port = process.env.PORT || 3000;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: {
+        origin: process.env.REACT_APP_API_URL || 'http://localhost:5173',
+        methods: ['GET', 'POST'],
+        credentials: true
+    }
+});
 
 io.on('connection', (socket) => {
-    console.log('socket connected');
+    console.log(`socket  ${socket.id} connected`);
+    // io.to(socket.id).emit('record_upload_status', { message: `socket  ${socket.id} connected` });
+
     socket.on('disconnect', () => {
         console.log('socket disconnected');
     });
@@ -124,82 +132,83 @@ app.post('/registration', upload.single('file'), async (req, res) => {
         const classId = row['Class ID'];
         const startTime = row['Class Start Time'];
         const action = row['Action'];
+        console.log(`Emitting to socketId: ${socketId}`);
 
         switch (action) {
             case 'new':
                 try {
-                // If the csv contains a student ID not in the master list, append to the student ID;
-                const { message } = await checkForStudent(studentId);
-                if (message) responses.push({ row, message });
+                    // If the csv contains a student ID not in the master list, append to the student ID;
+                    const { message } = await checkForStudent(studentId);
+                    if (message) responses.push({ row, message });
 
-                // If the csv contains a instructor ID not in the master list, append to the Instructor ID;
-                const isInstructorValid = await checkForInstructor(instructorId);
-                if (!isInstructorValid) {
-                    continue;
-                }
+                    // If the csv contains a instructor ID not in the master list, append to the Instructor ID;
+                    const isInstructorValid = await checkForInstructor(instructorId);
+                    if (!isInstructorValid) {
+                        continue;
+                    }
 
-                // If the csv contains a class ID not in the master list, append to the Class ID;
-                const isClassValid = await checkForClass(classId);
-                if (!isClassValid) {
-                    continue;
-                }
+                    // If the csv contains a class ID not in the master list, append to the Class ID;
+                    const isClassValid = await checkForClass(classId);
+                    if (!isClassValid) {
+                        continue;
+                    }
 
-                // A student cannot schedule more than 'x' classes in a day (should be configurable via env variables).
-                const STUDENT_MAX_CLASSES = process.env.STUDENT_MAX_CLASSES || 5;
+                    // A student cannot schedule more than 'x' classes in a day (should be configurable via env variables).
+                    const STUDENT_MAX_CLASSES = process.env.STUDENT_MAX_CLASSES || 5;
 
-                const studentClassCount = await RegistrationModel.countDocuments({ studentId, startTime: { $gte: today } });
+                    const studentClassCount = await RegistrationModel.countDocuments({ studentId, startTime: { $gte: today } });
 
-                if (studentClassCount >= STUDENT_MAX_CLASSES) {
-                    responses.push({ row, message: `A student cannot schedule more than ${STUDENT_MAX_CLASSES} classes in a day ` });
-                    continue;
-                }
+                    if (studentClassCount >= STUDENT_MAX_CLASSES) {
+                        responses.push({ row, message: `A student cannot schedule more than ${STUDENT_MAX_CLASSES} classes in a day ` });
+                        continue;
+                    }
 
-                // An instructor cannot have more than 'y' classes in a day (should be configurable via env variables).
-                const INSTRUCTOR_MAX_CLASSES = process.env.INSTRUCTOR_MAX_CLASSES || 5;
-                const instructorClassCount = await RegistrationModel.countDocuments({ instructorId, startTime: { $gte: today } });
+                    // An instructor cannot have more than 'y' classes in a day (should be configurable via env variables).
+                    const INSTRUCTOR_MAX_CLASSES = process.env.INSTRUCTOR_MAX_CLASSES || 5;
+                    const instructorClassCount = await RegistrationModel.countDocuments({ instructorId, startTime: { $gte: today } });
 
-                if (instructorClassCount >= INSTRUCTOR_MAX_CLASSES) {
-                    responses.push({ row, message: `An instructor cannot have more than ${INSTRUCTOR_MAX_CLASSES} classes in a day` });
-                    continue;
-                }
+                    if (instructorClassCount >= INSTRUCTOR_MAX_CLASSES) {
+                        responses.push({ row, message: `An instructor cannot have more than ${INSTRUCTOR_MAX_CLASSES} classes in a day` });
+                        continue;
+                    }
 
-                // Fetching count of class type if specific class type for today
-                const classTypeCount = await RegistrationModel.countDocuments({
-                    classId: classId,
-                    startTime: { $gte: today },
-                });
-
-                const MAX_CLASSES_PER_CLASS_TYPE = process.env.MAX_CLASSES_PER_CLASS_TYPE || 5;
-                // Maximum number of classes 'c' per class-type that can be scheduled in a day 
-                if (classTypeCount >= MAX_CLASSES_PER_CLASS_TYPE) {
-                    return res.status(400).json({
-                        message: `Maximum number of classes for this class type (${classId}) has been reached. Maximum allowed: ${MAX_CLASSES_PER_CLASS_TYPE}`,
+                    // Fetching count of class type if specific class type for today
+                    const classTypeCount = await RegistrationModel.countDocuments({
+                        classId: classId,
+                        startTime: { $gte: today },
                     });
-                }
 
-                //check for overlapping sessions
-                const classTime = new Date(startTime);
-                const isClassOverlapped = await classOverlapCheck(studentId, instructorId, classTime);
-                if (isClassOverlapped) {
-                    responses.push({ row, message: 'Classes overlaps with another one' });
-                    continue;
-                }
+                    const MAX_CLASSES_PER_CLASS_TYPE = process.env.MAX_CLASSES_PER_CLASS_TYPE || 5;
+                    // Maximum number of classes 'c' per class-type that can be scheduled in a day 
+                    if (classTypeCount >= MAX_CLASSES_PER_CLASS_TYPE) {
+                        return res.status(400).json({
+                            message: `Maximum number of classes for this class type (${classId}) has been reached. Maximum allowed: ${MAX_CLASSES_PER_CLASS_TYPE}`,
+                        });
+                    }
 
-                const registerNew = new RegistrationModel({
-                    studentId,
-                    instructorId,
-                    classId,
-                    startTime,
-                    duration: process.env.CLASS_DURATION || 60, // Duration of class is 'm' minutes (should be configurable via env variables).
-                });
-                await registerNew.save();
-                io.to(socketId).emit('record_upload_status', { index, row, status: SUCCESS_STATUS, message: `${registerNew._id} registered successfully.` });
-                responses.push({ row, message: 'Registration successful', registrationId: registerNew._id });
-            } catch (error) {
-            
-            }
+                    //check for overlapping sessions
+                    const classTime = new Date(startTime);
+                    const isClassOverlapped = await classOverlapCheck(studentId, instructorId, classTime);
+                    if (isClassOverlapped) {
+                        responses.push({ row, message: 'Classes overlaps with another one' });
+                        continue;
+                    }
+
+                    const registerNew = new RegistrationModel({
+                        studentId,
+                        instructorId,
+                        classId,
+                        startTime,
+                        duration: process.env.CLASS_DURATION || 60, // Duration of class is 'm' minutes (should be configurable via env variables).
+                    });
+                    await registerNew.save();
+                    io.to(socketId).emit('record_upload_status', { index, row, status: SUCCESS_STATUS, message: `${registerNew._id} registered successfully.` });
+                    responses.push({ row, message: 'Registration successful', registrationId: registerNew._id });
+                } catch (error) {
+                    io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: 'Registration failed' });
+                    responses.push({ row, message: 'Registration failed' });
+                }
                 break;
-
             case 'update':
                 if (!mongoose.isValidObjectId(registrationId)) {
                     responses.push({ row, message: `Invalid ObjectId: ${registrationId}` });
@@ -213,14 +222,14 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                         record.classId = classId;
                         record.startTime = startTime;
                         await record.save();
-                        io.to(socketId).emit('record_upload_status', { index, row, status:SUCCESS_STATUS, message: `${record._id} updated successfully.` });
+                        io.to(socketId).emit('record_upload_status', { index, row, status: SUCCESS_STATUS, message: `${record._id} updated successfully.` });
                         responses.push({ row, message: 'Record updated successfully' });
                     } else {
-                        io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `${record._id} updated successfully.` });
+                        io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: 'Record not found' });
                         responses.push({ row, message: 'Record not found' });
                     }
                 } catch (error) {
-                    io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `${record._id} updated successfully.` });
+                    io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `Error updating record: ${error.message}` });
                     responses.push({ row, message: `Error updating record: ${error.message}` });
                 }
                 break;
@@ -232,8 +241,10 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                 try {
                     const record = await RegistrationModel.deleteOne({ _id: registrationId })
                     if (!record) {
+                        io.to(socketId).emit('record_upload_status', { index, row, status: FAILED_STATUS, message: `Record not found for ID: ${registrationId}` });
                         responses.push({ row, message: `Record not found for ID: ${registrationId}` });
                     } else {
+                        io.to(socketId).emit('record_upload_status', { index, row, status: SUCCESS_STATUS, message: 'record deleted successfully.' });
                         responses.push({ row, message: `Record deleted successfully` });
                     }
                 } catch (error) {
@@ -243,11 +254,13 @@ app.post('/registration', upload.single('file'), async (req, res) => {
                 break;
             default:
         }
-
-
     }
+    console.log(` Socket id ${socketId}`);
     console.log('Responses...', JSON.stringify(responses));
-    res.status(200).json(responses);
+    // Mocking 15 seconds delay to check socket working
+    setTimeout(() => {
+        res.status(200).json(responses);
+    }, 15000);
 });
 
 // Just one time insertion of dummy records
